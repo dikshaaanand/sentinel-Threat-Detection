@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sentinel — Threat Detection</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0c10;--bg2:#10131a;--bg3:#171b24;--bg4:#1e2330;
+  --border:#2a3040;--border2:#3a4560;
+  --text:#c8d0e0;--text2:#8a96b0;--text3:#4a5570;
+  --red:#ff3b5c;--redbg:#1a0810;
+  --amber:#f5a623;--amberbg:#1a1200;
+  --green:#00d68f;--greenbg:#001a10;
+  --blue:#4d9fff;--bluebg:#08102a;
+}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* Layout */
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+
+/* Sidebar */
+.sidebar{background:var(--bg2);border-right:1px solid var(--border);padding:0;display:flex;flex-direction:column}
+.logo{padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+.logo-mark{display:flex;align-items:center;gap:10px}
+.logo-icon{width:32px;height:32px;background:var(--red);border-radius:8px;display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.5}
+.logo-text{font-size:13px;font-weight:700;letter-spacing:.04em;color:#fff}
+.logo-sub{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-top:2px}
+.status-pill{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--greenbg);border:1px solid #003d20;border-radius:6px;margin:14px 18px 0;font-size:11px;color:var(--green);font-family:'JetBrains Mono',monospace}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+.nav{padding:18px 10px;flex:1}
+.nav-section{font-size:10px;color:var(--text3);letter-spacing:.12em;padding:0 8px 8px;margin-top:8px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:13px;color:var(--text2);margin-bottom:2px;border:1px solid transparent}
+.nav-item.active{background:var(--redbg);border-color:#3a0815;color:var(--red)}
+.nav-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.nav-item.active .nav-dot{background:var(--red)}
+.nav-count{margin-left:auto;font-size:10px;font-family:'JetBrains Mono',monospace;background:var(--redbg);border:1px solid #3a0815;color:var(--red);padding:1px 6px;border-radius:4px}
+.sidebar-footer{padding:14px;border-top:1px solid var(--border)}
+.avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#4d9fff,#a855f7);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff}
+.agent-row{display:flex;align-items:center;gap:8px}
+.agent-name{font-size:12px;font-weight:600;color:var(--text)}
+.agent-role{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+
+/* Main */
+.main{display:flex;flex-direction:column}
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px}
+.topbar-title{font-size:15px;font-weight:700;color:#fff;flex:1}
+.topbar-time{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.threat-level{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--redbg);border:1px solid #3a0815;color:var(--red)}
+.threat-badge{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 1s infinite}
+.content{padding:20px 24px;flex:1}
+
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.metric{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;position:relative;overflow:hidden}
+.metric::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.metric.red::before{background:var(--red)}
+.metric.amber::before{background:var(--amber)}
+.metric.green::before{background:var(--green)}
+.metric.blue::before{background:var(--blue)}
+.metric-label{font-size:10px;color:var(--text3);letter-spacing:.1em;margin-bottom:8px;font-family:'JetBrains Mono',monospace}
+.metric-value{font-size:26px;font-weight:800;line-height:1}
+.metric.red .metric-value{color:var(--red)}
+.metric.amber .metric-value{color:var(--amber)}
+.metric.green .metric-value{color:var(--green)}
+.metric.blue .metric-value{color:var(--blue)}
+.metric-delta{font-size:10px;color:var(--text3);margin-top:6px;font-family:'JetBrains Mono',monospace}
+
+/* Grid */
+.grid2{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:16px}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.panel-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.panel-title{font-size:12px;font-weight:700;letter-spacing:.08em;color:#fff;flex:1}
+.panel-badge{font-size:10px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:4px}
+.panel-badge.red{background:var(--redbg);border:1px solid #3a0815;color:var(--red)}
+.panel-badge.green{background:var(--greenbg);border:1px solid #003d20;color:var(--green)}
+.panel-badge.amber{background:var(--amberbg);border:1px solid #3a2a00;color:var(--amber)}
+
+/* Feed */
+.feed{padding:12px;max-height:380px;overflow-y:auto}
+.threat-row{display:flex;align-items:flex-start;gap:12px;padding:10px;border-radius:8px;cursor:pointer;transition:background .15s;border:1px solid transparent;margin-bottom:4px}
+.threat-row:hover,.threat-row.selected{background:var(--bg3);border-color:var(--border)}
+.threat-row.selected{border-color:var(--red);background:var(--redbg)}
+.severity-dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0}
+.sev-critical{background:var(--red);box-shadow:0 0 8px var(--red)}
+.sev-high{background:var(--amber)}
+.sev-medium{background:var(--blue)}
+.sev-low{background:var(--text3)}
+.threat-main{flex:1;min-width:0}
+.threat-name{font-size:12px;font-weight:600;color:#fff;margin-bottom:3px}
+.threat-meta{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.threat-type{font-size:10px;padding:2px 7px;border-radius:4px;flex-shrink:0;font-family:'JetBrains Mono',monospace}
+.tt-critical{background:var(--redbg);border:1px solid #3a0815;color:var(--red)}
+.tt-high{background:var(--amberbg);border:1px solid #3a2a00;color:var(--amber)}
+.tt-medium{background:var(--bluebg);border:1px solid #0a2040;color:var(--blue)}
+.tt-low{background:var(--bg4);border:1px solid var(--border);color:var(--text3)}
+
+/* XAI */
+.xai-content{padding:14px}
+.xai-score{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:var(--redbg);border:1px solid #3a0815;border-radius:8px}
+.xai-score-num{font-size:36px;font-weight:800;font-family:'JetBrains Mono',monospace;line-height:1}
+.xai-score-label{font-size:10px;letter-spacing:.1em;margin-bottom:4px;opacity:.7}
+.xai-score-verdict{font-size:12px;color:#fff;font-weight:600}
+.feat-label{font-size:10px;color:var(--text3);letter-spacing:.1em;margin-bottom:10px}
+.feature-row{margin-bottom:8px}
+.feat-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.feat-name{font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace}
+.feat-val{font-size:11px;font-family:'JetBrains Mono',monospace;font-weight:600}
+.feat-val.pos{color:var(--red)}
+.feat-val.neg{color:var(--green)}
+.feat-bar-bg{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.feat-bar{height:100%;border-radius:3px;transition:width .6s}
+.feat-bar.pos{background:var(--red)}
+.feat-bar.neg{background:var(--green)}
+
+/* Bottom */
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.timeline-wrap{padding:14px}
+.tl-bars{display:flex;align-items:flex-end;gap:3px;height:72px}
+.tl-bar{flex:1;border-radius:3px 3px 0 0;min-width:6px;cursor:pointer;transition:opacity .15s}
+.tl-labels{display:flex;justify-content:space-between;margin-top:6px;font-size:9px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.geo-list{padding:12px}
+.geo-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)}
+.geo-row:last-child{border:0}
+.geo-flag{font-size:16px;width:24px;text-align:center}
+.geo-name{font-size:12px;color:var(--text);flex:1}
+.geo-count{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--red)}
+.geo-bar-bg{width:80px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.geo-bar{height:100%;border-radius:2px;background:var(--red);transition:width .5s}
+.model-grid{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.model-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px}
+.model-name{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:6px}
+.model-acc{font-size:20px;font-weight:800;color:var(--green)}
+.model-type{font-size:9px;color:var(--text3);margin-top:3px;font-family:'JetBrains Mono',monospace}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.threat-row{animation:fadeIn .3s ease}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div>
+          <div class="logo-text">SENTINEL</div>
+          <div class="logo-sub mono">XAI THREAT INTEL v2.4</div>
+        </div>
+      </div>
+      <div class="status-pill">
+        <span class="pulse"></span>
+        LIVE MONITORING
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-section">DETECTION</div>
+      <div class="nav-item active"><span class="nav-dot"></span><span>Threat Feed</span><span class="nav-count" id="navCount">0</span></div>
+      <div class="nav-item"><span class="nav-dot"></span><span>Anomalies</span></div>
+      <div class="nav-item"><span class="nav-dot"></span><span>Network Map</span></div>
+      <div class="nav-section">INTELLIGENCE</div>
+      <div class="nav-item"><span class="nav-dot"></span><span>XAI Analysis</span></div>
+      <div class="nav-item"><span class="nav-dot"></span><span>MITRE ATT&CK</span></div>
+      <div class="nav-section">RESPONSE</div>
+      <div class="nav-item"><span class="nav-dot"></span><span>Playbooks</span></div>
+      <div class="nav-item"><span class="nav-dot"></span><span>Reports</span></div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="agent-row">
+        <div class="avatar">SA</div>
+        <div>
+          <div class="agent-name">SOC Analyst</div>
+          <div class="agent-role mono">TIER-2 · ACTIVE</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">Threat Detection Dashboard</div>
+      <div class="topbar-time mono" id="clock">--:--:-- UTC</div>
+      <div class="threat-level"><span class="threat-badge"></span>THREAT LEVEL: HIGH</div>
+    </div>
+
+    <div class="content">
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="metric red"><div class="metric-label">CRITICAL THREATS</div><div class="metric-value" id="mCritical">0</div><div class="metric-delta">live count</div></div>
+        <div class="metric amber"><div class="metric-label">ACTIVE INCIDENTS</div><div class="metric-value" id="mActive">0</div><div class="metric-delta">total detected</div></div>
+        <div class="metric green"><div class="metric-label">BLOCKED ATTACKS</div><div class="metric-value" id="mBlocked">0</div><div class="metric-delta">auto-mitigated</div></div>
+        <div class="metric blue"><div class="metric-label">AVG RISK SCORE</div><div class="metric-value" id="mRisk">0</div><div class="metric-delta">model confidence</div></div>
+      </div>
+
+      <!-- Feed + XAI -->
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">LIVE THREAT FEED</div>
+            <span class="panel-badge red" id="feedBadge">WAITING...</span>
+          </div>
+          <div class="feed" id="threatFeed">
+            <div style="text-align:center;padding:40px 0;color:var(--text3);font-size:12px;font-family:'JetBrains Mono',monospace">
+              Connecting to live feed...
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">EXPLAINABLE AI ANALYSIS</div>
+            <span class="panel-badge amber" id="xaiBadge">SELECT THREAT</span>
+          </div>
+          <div class="xai-content" id="xaiContent">
+            <div style="text-align:center;padding:40px 0;color:var(--text3);font-size:12px;font-family:'JetBrains Mono',monospace">
+              ← Select a threat to<br>view XAI explanation
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom -->
+      <div class="grid3">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">ATTACK TIMELINE</div><span class="panel-badge amber">LIVE</span></div>
+          <div class="timeline-wrap">
+            <div class="tl-bars" id="tlBars"></div>
+            <div class="tl-labels"><span>older</span><span></span><span></span><span></span><span></span><span></span><span>now</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">TOP ATTACK ORIGINS</div><span class="panel-badge red">LIVE</span></div>
+          <div class="geo-list">
+            <div class="geo-row"><span class="geo-flag">🇷🇺</span><span class="geo-name">Russia</span><span class="geo-bar-bg"><span class="geo-bar" style="width:95%"></span></span><span class="geo-count" id="g1">847</span></div>
+            <div class="geo-row"><span class="geo-flag">🇨🇳</span><span class="geo-name">China</span><span class="geo-bar-bg"><span class="geo-bar" style="width:78%"></span></span><span class="geo-count" id="g2">693</span></div>
+            <div class="geo-row"><span class="geo-flag">🇰🇵</span><span class="geo-name">North Korea</span><span class="geo-bar-bg"><span class="geo-bar" style="width:55%"></span></span><span class="geo-count" id="g3">489</span></div>
+            <div class="geo-row"><span class="geo-flag">🇮🇷</span><span class="geo-name">Iran</span><span class="geo-bar-bg"><span class="geo-bar" style="width:42%"></span></span><span class="geo-count" id="g4">375</span></div>
+            <div class="geo-row"><span class="geo-flag">🇧🇷</span><span class="geo-name">Brazil</span><span class="geo-bar-bg"><span class="geo-bar" style="width:24%"></span></span><span class="geo-count" id="g5">213</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">MODEL PERFORMANCE</div><span class="panel-badge green">HEALTHY</span></div>
+          <div class="model-grid">
+            <div class="model-card"><div class="model-name">ISOLATION FOREST</div><div class="model-acc">96.2%</div><div class="model-type">anomaly detection</div></div>
+            <div class="model-card"><div class="model-name">RANDOM FOREST</div><div class="model-acc">94.8%</div><div class="model-type">classification</div></div>
+            <div class="model-card"><div class="model-name">SHAP XAI</div><div class="model-acc">97.1%</div><div class="model-type">explainability</div></div>
+            <div class="model-card"><div class="model-name">LIVE FEED</div><div class="model-acc" id="liveAcc" style="color:var(--green)">ON</div><div class="model-type">websocket stream</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// Clock
+function updateClock(){
+  document.getElementById('clock').textContent=new Date().toUTCString().match(/\d+:\d+:\d+/)[0]+' UTC';
+}
+updateClock();setInterval(updateClock,1000);
+
+// State
+let threats=[];
+let totalDetected=0;
+let criticalCount=0;
+let blockedCount=0;
+let riskScores=[];
+let timelineCounts=new Array(24).fill(0);
+let selectedId=null;
+
+// Timeline init
+function renderTimeline(){
+  const bars=document.getElementById('tlBars');
+  bars.innerHTML='';
+  const max=Math.max(...timelineCounts,1);
+  timelineCounts.forEach(v=>{
+    const b=document.createElement('div');
+    const h=Math.max(4,Math.round((v/max)*72));
+    b.className='tl-bar';
+    b.style.height=h+'px';
+    b.style.background=v>10?'var(--red)':v>4?'var(--amber)':'var(--text3)';
+    bars.appendChild(b);
+  });
+}
+renderTimeline();
+
+// Geo counters - increment randomly
+setInterval(()=>{
+  const ids=['g1','g2','g3','g4','g5'];
+  const id=ids[Math.floor(Math.random()*ids.length)];
+  const el=document.getElementById(id);
+  el.textContent=parseInt(el.textContent)+Math.floor(Math.random()*3)+1;
+},4000);
+
+// Render XAI panel
+function renderXAI(t){
+  const scoreColor=t.risk_score>=80?'var(--red)':t.risk_score>=60?'var(--amber)':'var(--blue)';
+  const verdict=t.risk_score>=80?'Critical — immediate action required':
+                t.risk_score>=60?'High risk — investigate now':'Monitor and log';
+
+  const maxVal=Math.max(...t.explanation.map(f=>Math.abs(f.value)));
+  const feats=t.explanation.map(f=>{
+    const pct=Math.round((Math.abs(f.value)/maxVal)*100);
+    return `<div class="feature-row">
+      <div class="feat-header">
+        <span class="feat-name">${f.feature}</span>
+        <span class="feat-val ${f.direction}">${f.direction==='pos'?'+':''}${f.value.toFixed(4)}</span>
+      </div>
+      <div class="feat-bar-bg"><div class="feat-bar ${f.direction}" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('xaiContent').innerHTML=`
+    <div class="xai-score">
+      <div>
+        <div class="xai-score-label mono" style="color:${scoreColor}">RISK SCORE</div>
+        <div class="xai-score-num" style="color:${scoreColor}">${t.risk_score}</div>
+      </div>
+      <div>
+        <div class="xai-score-label mono" style="color:${scoreColor}">VERDICT</div>
+        <div class="xai-score-verdict">${verdict}</div>
+      </div>
+    </div>
+    <div class="feat-label mono">SHAP FEATURE IMPORTANCE</div>
+    ${feats}
+    <div style="margin-top:14px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text2);line-height:1.7;font-family:'JetBrains Mono',monospace">
+      Threat type: <span style="color:var(--amber)">${t.threat_type}</span> · 
+      Source IP: <span style="color:var(--amber)">${t.ip}</span> · 
+      Detected: <span style="color:var(--amber)">${t.timestamp}</span>
+    </div>
+  `;
+
+  const badge=document.getElementById('xaiBadge');
+  badge.textContent=t.severity.toUpperCase();
+  badge.className='panel-badge '+(t.severity==='critical'?'red':t.severity==='high'?'amber':'green');
+}
+
+// Add threat to feed
+function addThreat(t){
+  threats.unshift(t);
+  if(threats.length>20) threats.pop();
+
+  totalDetected++;
+  if(t.severity==='critical') criticalCount++;
+  blockedCount+=Math.random()>0.3?1:0;
+  riskScores.push(t.risk_score);
+  if(riskScores.length>50) riskScores.shift();
+
+  // Update metrics
+  document.getElementById('mCritical').textContent=criticalCount;
+  document.getElementById('mActive').textContent=totalDetected;
+  document.getElementById('mBlocked').textContent=blockedCount;
+  document.getElementById('mRisk').textContent=Math.round(riskScores.reduce((a,b)=>a+b,0)/riskScores.length);
+  document.getElementById('navCount').textContent=threats.length;
+  document.getElementById('feedBadge').textContent=threats.length+' ACTIVE';
+
+  // Update timeline
+  const hour=new Date().getHours();
+  timelineCounts[hour]++;
+  renderTimeline();
+
+  // Render feed
+  const feed=document.getElementById('threatFeed');
+  feed.innerHTML=threats.map(th=>`
+    <div class="threat-row ${th.id===selectedId?'selected':''}" onclick="selectThreat(${th.id})">
+      <span class="severity-dot sev-${th.severity}"></span>
+      <div class="threat-main">
+        <div class="threat-name">${th.threat_type} — ${th.ip}</div>
+        <div class="threat-meta">Risk: ${th.risk_score} · ${th.timestamp}</div>
+      </div>
+      <span class="threat-type tt-${th.severity}">${th.severity.toUpperCase()}</span>
+    </div>
+  `).join('');
+
+  // Auto-select newest
+  selectedId=t.id;
+  renderXAI(t);
+}
+
+function selectThreat(id){
+  selectedId=id;
+  const t=threats.find(x=>x.id===id);
+  if(t) renderXAI(t);
+  document.querySelectorAll('.threat-row').forEach(r=>r.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+}
+
+// Connect to WebSocket
+const socket=io('http://localhost:5000');
+socket.on('connect',()=>{
+  console.log('Connected to Sentinel API');
+  document.getElementById('liveAcc').textContent='ON';
+});
+socket.on('disconnect',()=>{
+  document.getElementById('liveAcc').textContent='OFF';
+  document.getElementById('liveAcc').style.color='var(--red)';
+});
+socket.on('new_threat',t=>{
+  addThreat(t);
+});
+
+// Also fetch initial batch
+fetch('http://localhost:5000/predict/batch')
+  .then(r=>r.json())
+  .then(data=>data.forEach(t=>addThreat(t)))
+  .catch(()=>console.log('Waiting for API...'));
+</script>
+</body>
+</html>
